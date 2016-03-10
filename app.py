@@ -2,7 +2,7 @@ from flask import Flask, jsonify, request, abort
 
 app = Flask(__name__)
 
-# A server restart wipes the order book, TODO add a db to persist
+# A server restart wipes the order book, TODO add a db to persist?
 # Both arrays are maintained in sorted order with most attractive bid/offers first
 buys = []
 sells = []
@@ -13,25 +13,35 @@ def get_book():
 
 @app.route('/buy', methods=['POST'])
 def buy():
-    return process_order(sells, buys, lambda prc1, prc2: prc1 > prc2)
+    return jsonify(process_order(sells, buys, lambda prc1, prc2: prc1 > prc2))
 
 @app.route('/sell', methods=['POST'])
 def sell():
-    return process_order(buys, sells, lambda prc1, prc2: prc1 < prc2)
+    return jsonify(process_order(buys, sells, lambda prc1, prc2: prc1 < prc2))
 
 # refactored to be easily usable for both buy and sell side
 #  match_book: orders against; attempt to match against these
 #  add_book: orders on same side; add leftover liquidity here
 #  comp: (prc1, prc2) -> bool; returns true if prc1 is better than prc2
 #          when buying, higher is better; when selling, lower is better
-# RETURNS: a JSON string of fills
+# RETURNS: a JSON formatted list of fills
 def process_order(match_book, add_book, comp):
-    (qty, prc) = process_args()
+    (qty, prc, fok, alo) = process_args()
 
     # (order) -> bool; returns true if new order is more attractively priced than given arg
     better = lambda offer: comp(prc, offer['prc'])
     # (order) -> bool; matching consideration is same as better except equality also matches
     matches = lambda offer: better(offer) or prc == offer['prc']
+
+    if alo: # Add Liquidity Only
+        if len(match_book) > 0 and matches(match_book[0]):
+            return { 'fills': [] }
+
+    if fok: # Fill or Kill
+        matching = filter(matches, match_book)
+        matching_qty = sum(map(lambda offer: offer['qty'], matching))
+        if matching_qty < qty:
+            return { 'fills': [] }
 
     fills = []
 
@@ -61,10 +71,11 @@ def process_order(match_book, add_book, comp):
             idx += 1
         add_book.insert(idx, {'qty': qty, 'prc': prc})
 
-    return jsonify({ 'fills': fills })
+    return { 'fills': fills }
 
-# validate args from global request object, return (qty, price) tuple
-# TODO return a JSON style error object?
+# validate args from global request object
+# return (quantity:int, price:float, fill-or-kill:bool, add-liquid-only:bool) tuple
+# TODO return a JSON style error object with failure reason
 def process_args():
     if 'qty' not in request.json or 'prc' not in request.json:
         abort(400)
@@ -79,7 +90,19 @@ def process_args():
     if qty <= 0 or prc <= 0:
         abort(400)
 
-    return (qty, prc)
+    fok = False
+    alo = False
+
+    if 'fok' in request.json:
+        fok = request.json['fok']
+        if type(fok) is not bool:
+            abort(400)
+    if 'alo' in request.json:
+        alo = request.json['alo']
+        if type(alo) is not bool:
+            abort(400)
+
+    return (qty, prc, fok, alo)
 
 if __name__ == '__main__':
     app.run(debug=True, port=3000)

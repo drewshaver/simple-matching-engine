@@ -10,9 +10,14 @@ Dependencies:
 Run:
 
 * `python app.py`
+* `bash script.sh`
 
-Feature TODOs:
+Features:
 
-* Add a database to persist state of order book
-* Add a fill-or-kill flag
-* Add liquidity only flag
+* Fill or kill (`"fok":true`)
+* Add liquidity only (`"alo":true`)
+
+TODO:
+
+* Automated testing
+* Order book persistence, perhaps
